@@ -1,8 +1,8 @@
-import pysam 
-import os 
+import pysam
+import os
 import re
 import numpy as np
-import pandas as pd 
+import pandas as pd
 import time
 from pysam import VariantFile
 from sklearn.cluster import KMeans
@@ -11,8 +11,8 @@ pd.options.mode.chained_assignment = None
 
 
 def CallVCF(CandidateDf, VCFFile, refFile, bamFile, CellName):
-    # transfer candidate format to vcf format 
-    ## Select Proper SNVs 
+    # transfer candidate format to vcf format
+    ## Select Proper SNVs
     # Exact 0/0 position will not appeared in the vcf
     Condition1 = CandidateDf['Genotype'].isin(['0/1', '1/1'])
     Condition2 = CandidateDf['Decision'].isin(['PCRError', 'PCRErrorLow'])
@@ -22,7 +22,7 @@ def CallVCF(CandidateDf, VCFFile, refFile, bamFile, CellName):
     Condition4 = CandidateDf['Vague'].isin(['Yes'])
     Condition5 = CandidateDf['DataRange'].isin(['HomoHeteroSNV'])
     Condition6 = CandidateDf['PassCode'].isin(['ClusterSNV'])
-    ## make a VCF head 
+    ## make a VCF head
     # Info items include: NS, DP, AF, AA
     # Filter Items include: AB (Amplicon Bias), PCRError (PCR Error), ADO (Allele drop out)
     # Format Items include: GT (0/1, 1/1, 0/0) , L0 (Homozygous Likelihood), L1 (Amplicon Bias Likelihood), L2 (Heterozygous Likelihood), L3 (PCR error Likelihood), DP, AF
@@ -32,16 +32,16 @@ def CallVCF(CandidateDf, VCFFile, refFile, bamFile, CellName):
         vcf.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">\n")
         vcf.write("##INFO=<ID=AF,Number=A,Type=Float,Description=\"Allele Frequency\">\n")
         vcf.write("##INFO=<ID=AA,Number=1,Type=String,Description=\"Ancestral Allele\">\n")
-        vcf.write("##FILTER=<ID=AB,Description=\"Amplicon Bias\">\n")
-        vcf.write("##FILTER=<ID=PCRError,Description=\"Suspected PCR Error\">\n")
+        vcf.write("##FILTER=<ID=IMSNV,Description=\"Intermediate SNV error\">\n")
+        vcf.write("##FILTER=<ID=LASNV,Description=\"Low Allele Frequency SNV error\">\n")
         vcf.write("##FILTER=<ID=ADO,Description=\"Suspected Allele Drop-out Error\">\n")
         vcf.write("##FILTER=<ID=NE,Description=\"Not enough homozygous or heterozygous SNVs in the neighborhood\">\n")
         vcf.write("##FILTER=<ID=CC,Description=\"SNV located in SNV cluster\">\n")
         vcf.write("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n")
         vcf.write("##FORMAT=<ID=L0,Number=1,Type=Float,Description=\"Homozygous likelihood\">\n")
-        vcf.write("##FORMAT=<ID=L1,Number=1,Type=Float,Description=\"Amplicon Bias Likelihood\">\n")
+        vcf.write("##FORMAT=<ID=L1,Number=1,Type=Float,Description=\"Intermediate SNV likelihood\">\n")
         vcf.write("##FORMAT=<ID=L2,Number=1,Type=Float,Description=\"Heterozygous likelihood\">\n")
-        vcf.write("##FORMAT=<ID=L3,Number=1,Type=Float,Description=\"PCR Error likelihood\">\n")
+        vcf.write("##FORMAT=<ID=L3,Number=1,Type=Float,Description=\"Low Allele Frequency likelihood\">\n")
         vcf.write("##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">\n")
         vcf.write("##FORMAT=<ID=AF,Number=4,Type=Integer,Description=\"Top 4 Base count\"\n")
         for chrom in set(CandidateDf['Chrom']):
@@ -50,8 +50,8 @@ def CallVCF(CandidateDf, VCFFile, refFile, bamFile, CellName):
         vcf.write("##bamFile=file://%s\n" % bamFile)
         vcf.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t%s\n" % CellName)
         vcf.flush()
-        # AddLabel For each SNV in the CandidateDf_VCF 
-        CandidateDf['AF'] = CandidateDf['AltCount'] / CandidateDf['DP'] 
+        # AddLabel For each SNV in the CandidateDf_VCF
+        CandidateDf['AF'] = CandidateDf['AltCount'] / CandidateDf['DP']
         CandidateDf['INFO'] = 'NS=1;DP=' + CandidateDf['DP'].astype(str) + ";AF=" + CandidateDf['AF'].astype(str) + ";AA=" + CandidateDf['Alt']
         CandidateDf['FILTER'] = ""
         CandidateDf.loc[Condition2_1, 'FILTER'] += 'AB'
@@ -70,33 +70,42 @@ def CallVCF(CandidateDf, VCFFile, refFile, bamFile, CellName):
         CandidateDf['FORMAT_Label'] = 'GT:L0:L1:L2:L3:DP:AF'
         CandidateDf['FORMAT'] = CandidateDf['Genotype'] + ":" + CandidateDf['HomoZygous'].astype(str) + ":" + CandidateDf['HeteroZygous'].astype(str) + ":" + CandidateDf['PCRError'].astype(str) + ":" + CandidateDf['PCRErrorLow'].astype(str) + ":" + CandidateDf['DP'].astype(str) + ":" + CandidateDf['Base1'].astype(str) + "," + CandidateDf['Base2'].astype(str) + "," + CandidateDf['Base3'].astype(str) + "," + CandidateDf['Base4'].astype(str)
         CandidateDf_VCF = CandidateDf[Condition1 | Condition2 | Condition3 | Condition4]
-        CandidateDf_VCF['VCFInfo'] = CandidateDf_VCF['Chrom'] + "\t" + CandidateDf_VCF['Pos'].astype(str) + "\t.\t" + CandidateDf_VCF['Ref'] + "\t" + CandidateDf_VCF['Alt'] + "\t.\t" + CandidateDf_VCF['FILTER'] + '\t' + CandidateDf_VCF['INFO'] + "\t" + CandidateDf_VCF['FORMAT_Label'] + "\t" + CandidateDf_VCF['FORMAT'] 
-        
+        CandidateDf_VCF['VCFInfo'] = CandidateDf_VCF['Chrom'] + "\t" + CandidateDf_VCF['Pos'].astype(str) + "\t.\t" + CandidateDf_VCF['Ref'] + "\t" + CandidateDf_VCF['Alt'] + "\t.\t" + CandidateDf_VCF['FILTER'] + '\t' + CandidateDf_VCF['INFO'] + "\t" + CandidateDf_VCF['FORMAT_Label'] + "\t" + CandidateDf_VCF['FORMAT']
+
         for I in CandidateDf_VCF.index:
             Record = CandidateDf_VCF.loc[I, 'VCFInfo']
             vcf.write(Record + "\n")
             vcf.flush()
 def WeightKernel(Distance, mu=np.log(3)/10):
-    # return weight vector 
+    # return weight vector
     fx = 2 * np.exp(-mu * Distance) / (1 + np.exp(-mu * Distance))
     return(fx)
-    
+
 
 def CalculateP_A(SubDf, Position, mu=np.log(3)/10):
-    # set kernal 
+    # set kernal
     SubDf['Distance'] = np.abs(np.array(SubDf['Pos'])-Position) / 1000.0
     WorkDf = SubDf.loc[SubDf['Distance']!=0]
-    Weight = WeightKernel(np.array(WorkDf['Distance'], dtype=float), mu)
-    ProbDict = {}
-    for Base_Index in range(1,5):
-        BaseName = 'Base%s' % Base_Index
-        RateName = 'BRate%s' % Base_Index
-        WorkDf[RateName] = WorkDf[BaseName] / WorkDf['DP']
-        Ex = np.sum(np.array(WorkDf[RateName], dtype=float) * Weight) / np.sum(Weight)
-        Varx = np.sqrt(np.sum(Weight * (np.array(WorkDf[RateName], dtype=float) - Ex)**2) / np.sum(Weight))
-        ProbDict[BaseName] = [Ex, Varx]
+    if WorkDf.shape[0] > 0:
+        Weight = WeightKernel(np.array(WorkDf['Distance'], dtype=float), mu)
+        if np.sum(Weight) == 0:    # All adjacent SNVs located in too far distance
+            Weight = np.array([1.0] * len(Weight))
+        ProbDict = {}
+        for Base_Index in range(1,5):
+            BaseName = 'Base%s' % Base_Index
+            RateName = 'BRate%s' % Base_Index
+            WorkDf[RateName] = WorkDf[BaseName] / WorkDf['DP']
+            Ex = np.sum(np.array(WorkDf[RateName], dtype=float) * Weight) / np.sum(Weight)
+            Varx = np.sqrt(np.sum(Weight * (np.array(WorkDf[RateName], dtype=float) - Ex)**2) / np.sum(Weight))
+            ProbDict[BaseName] = [Ex, Varx]
+    else:  # No data provided
+        ProbDict = {}
+        for Base_Index in range(1,5):
+            BaseName = 'Base%s' % Base_Index
+            RateName = 'BRate%s' % Base_Index
+            ProbDict[BaseName] = [0.0000001, 0.0000001]
     return(ProbDict)
-    
+
 def DfTailor(SubDf1, SubDf2, I):
     # gain Sub dataframe with tha same dim (decided by the smaller Dataframe)
     # Tail the larger dataframe around the candidate Point
@@ -174,7 +183,7 @@ def MakeShowData(InputDf, PCRDf, InterestedColumn1):
 ## Finish Common Functions
 
 class EstModel():
-    
+
     def __init__(self, bamFile, ref, CellName=None, WindowSize=30000, mu=np.log(3)/10):
         '''
         Load requriement File Names and File Path
@@ -203,15 +212,15 @@ class EstModel():
         self.Name = os.path.basename(bamFile).split(".bam")[0]
         if not CellName:
             self.Name = CellName
-    
-    def MakeCandidateDf(self, chrom, Start, End):
+
+    def MakeCandidateDf(self, chrom, Start, End, AutoCutoff=True):
         '''
         Convert sorted bam into candidate dataframe
         input:
             refFile: pysam.FastarFile object for reference genome
             samfile: pysam.AlignmentFile object for sorted bam file
             chrom: aim chromosome required for dataframe extraction
-            Start: start position for dataframe 
+            Start: start position for dataframe
             End: end position for dataframe
         '''
         self.Start = Start
@@ -263,9 +272,9 @@ class EstModel():
                     BaseCountList = sorted(NonRefList[0:3] + [RefCount], reverse=True)
                     Info = [my_arg['contig'], pos, refSeq, float(RefCount), AltBase, float(AltCount), DP] + BaseCountList + [BaseCountList[1] / DP]
                     CandidateDf.loc['%s:%s' % (my_arg['contig'], pos)] = Info
-                    partner += 2    # Now we need a 0/0 genotype partner 
+                    partner += 2    # Now we need a 0/0 genotype partner
                 elif  AltCount > 0:  # proper point with Alt Allele
-                    if partner >=1: # Now we need a 0/0 genotype partner 
+                    if partner >=1: # Now we need a 0/0 genotype partner
                         DP = float(sum(NonRefList[0:3]) + RefCount)
                         BaseCountList = sorted(NonRefList[0:3] + [RefCount], reverse=True)
                         Info = [my_arg['contig'], pos, DP] + BaseCountList + [BaseCountList[1] / DP]
@@ -283,7 +292,8 @@ class EstModel():
         self.Candidate = CandidateDf
         self.Shadow = partnerDf
         # Identify homozygous and heterozygous Roughly
-        self.GetCutoffSimple()
+        if self.Candidate.shape[0] > 0 and AutoCutoff:
+            self.GetCutoffSimple()
 
     def GetCutoffSimple(self):
         # decrease the complex of method GetCutoff()
@@ -298,7 +308,7 @@ class EstModel():
         CutOFFShadow.index = self.Shadow.index
         CutOFFDf['Label'] = 'UnSet'
         MixDf = pd.concat([CutOFFDf, CutOFFShadow], axis=0, sort=True).sort_values(by=['RawRate'])
-        # Make cutoff every 1 MB 
+        # Make cutoff every 1 MB
         # PosMax = list(MixDf['Pos'])[-1]
         Orig = list(CutOFFDf['Pos'])[0]-1
         estimator = sklearn.cluster.AgglomerativeClustering(2)
@@ -308,7 +318,7 @@ class EstModel():
         MixDf.loc[MixDf['Label']==estimator.labels_[0], 'Label'] = 'Homozygous'
         MixDf.loc[MixDf['Label']==estimator.labels_[-1], 'Label'] = 'Heterozygous'
         CutOFFDf.loc[CutOFFDf.index, ['Label']] = MixDf.loc[CutOFFDf.index, ['Label']]
-        # 
+        #
         while CutOFFDf.loc[(CutOFFDf['Pos']>Orig)&(CutOFFDf['Pos']<=Orig+self.WindowSize)].shape[0] >=3:
             SubDf = CutOFFDf.loc[(CutOFFDf['Pos']>Orig)&(CutOFFDf['Pos']<=Orig+self.WindowSize)]
             SubShadow = CutOFFShadow.loc[(CutOFFShadow['Pos']>Orig)&(CutOFFShadow['Pos']<=Orig+self.WindowSize)]
@@ -321,26 +331,29 @@ class EstModel():
             Orig = list(SubDf['Pos'])[-1]
         # check Null cutoffs
         self.Candidate['RawGT'] = CutOFFDf['Label']
-    
+
     def AnnotateCountDf1(self):
         # The first annotation of candidate SNV Dataframe
         self.ABdf = pd.DataFrame(columns=['HeteroBase1', 'HeteroSE', 'HomoBase1', 'HomoSE', 'PCRBase1', 'PCRSE', 'PCRLowBase1'], index=self.Candidate.index)
         CountDf = self.Candidate
         WindowSize = self.WindowSize
         mu = self.mu
-        CountDf['HomoZygous'] = 1 
+        CountDf['HomoZygous'] = 1
         CountDf['HomoZygous_P'] = 0
         CountDf['HomoZygous_P_std'] = 0
         CountDf['HeteroZygous'] = 1
         CountDf['HeteroZygous_P'] = 0
         CountDf['HeteroZygous_P_std'] = 0
         CountDf['PCRError'] = 1
+        CountDf['PCRError_P'] = 0
+        CountDf['PCRError_P_std'] = 0
         CountDf['PCRErrorLow'] = 1
+        CountDf['PCRErrorLow_P'] = 0
         CountDf['DataRange'] = 'AllData'
         CountDf['Decision'] = 'Unknown'
         CountDf['DecisionGT'] = 'Unknown'
-        TotalHomoDf = CountDf.loc[CountDf['RawGT']=='Homozygous']
-        TotalHeterDf = pd.concat([CountDf.loc[CountDf['RawGT']=='Heterozygous'], self.Shadow], axis=0, sort=True)
+        TotalHomoDf = pd.concat([CountDf.loc[CountDf['RawGT']=='Homozygous'], self.Shadow], axis=0, sort=True)
+        TotalHeterDf = CountDf.loc[CountDf['RawGT']=='Heterozygous']
         for I in CountDf.index:
             currentPos = CountDf.loc[I, 'Pos']
             start = currentPos - WindowSize
@@ -371,24 +384,29 @@ class EstModel():
                 HeteroProb = CalculateP_A(SubDf_Heter, currentPos, mu)
                 PCRProb = CalculateP_A(DfTailor(SubDf_Homo, SubDf_Heter, currentPos), currentPos, mu)
             CountDf.loc[I, 'DataRange'] = DataRange
-            # fill in the std value
+            # fill in the success probability and std value
             CountDf.loc[I, 'HomoZygous_P'] = HomoProb['Base2'][0]
             CountDf.loc[I, 'HomoZygous_P_std'] = HomoProb['Base2'][1]
             CountDf.loc[I, 'HeteroZygous_P'] = HeteroProb['Base2'][0]
             CountDf.loc[I, 'HeteroZygous_P_std'] = HeteroProb['Base2'][1]
+            CountDf.loc[I, 'PCRError_P'] = PCRProb['Base2'][0]
+            CountDf.loc[I, 'PCRError_P_std'] = PCRProb['Base2'][1]
+
             self.ABdf.loc[I] = [HeteroProb['Base1'][0], HeteroProb['Base1'][1], HomoProb['Base1'][0], HomoProb['Base1'][1], PCRProb['Base1'][0], PCRProb['Base1'][1], HeteroProb['Base1'][0]-3*HeteroProb['Base1'][1]]
             for Base in ['Base1', 'Base2', 'Base3', 'Base4']:
                 CountDf.loc[I, 'HomoZygous'] = CountDf.loc[I, 'HomoZygous'] + (np.log10(HomoProb[Base][0]+0.0000001)*CountDf.loc[I, Base])
                 CountDf.loc[I, 'HeteroZygous'] = CountDf.loc[I, 'HeteroZygous'] + (np.log10(HeteroProb[Base][0] + 0.0000001)*CountDf.loc[I, Base])
                 CountDf.loc[I, 'PCRError'] = CountDf.loc[I, 'PCRError'] + (np.log10(PCRProb[Base][0]+0.0000001)*CountDf.loc[I, Base])
-            PCRLow_P1 = np.max([0.0000001, (HeteroProb["Base1"][0] + 0.0000001 - 3 * HeteroProb["Base1"][1])])
+            PCRLow_P1 = np.max([0.0000001, (HeteroProb["Base1"][0] - 3 * HeteroProb["Base1"][1])]) # avoid the negative value
+            CountDf.loc[I, 'PCRErrorLow_P'] = PCRLow_P1
             CountDf.loc[I, 'PCRErrorLow'] = (np.log10(PCRLow_P1+0.0000001)*CountDf.loc[I, "Base1"]) + (np.log10(1-PCRLow_P1+0.0000001)*CountDf.loc[I, "Base2"])
             # Normalize the percentage data
             ProbUnit = np.array(CountDf.loc[I, ['HomoZygous', 'HeteroZygous', 'PCRError', 'PCRErrorLow']])
+            ProbUnit = list(ProbUnit)
 #             ProbUnit = ProbUnit / np.sum(ProbUnit)
-            CountDf.loc[I, ['HomoZygous', 'HeteroZygous', 'PCRError', 'PCRErrorLow']] = list(ProbUnit)
+            CountDf.loc[I, ['HomoZygous', 'HeteroZygous', 'PCRError', 'PCRErrorLow']] = ProbUnit
             DecisionList = ['Homozygous', 'Heterozygous', 'PCRError', 'PCRErrorLow']
-            Decision = DecisionList[np.where(ProbUnit==np.max(ProbUnit))[0][0]]
+            Decision = DecisionList[ProbUnit.index(max(ProbUnit))]
             CountDf.loc[I, 'Decision'] = Decision
             if Decision == 'PCRError':
                 # we should make a decision which GT to choose
@@ -397,7 +415,7 @@ class EstModel():
                 else:
                     CountDf.loc[I, 'DecisionGT'] = 'Homozygous'    # else candidate position are more likely to HeteroZygous
             else:
-                CountDf.loc[I, 'DecisionGT'] = CountDf.loc[I, 'Decision'] 
+                CountDf.loc[I, 'DecisionGT'] = CountDf.loc[I, 'Decision']
             if Decision == 'PCRErrorLow':
                 CountDf.loc[I, 'DecisionGT'] = 'Heterozygous'
         self.Candidate = CountDf
@@ -407,8 +425,8 @@ class EstModel():
         self.ABdf['RawRate'] = CountDf['RawRate']
         self.ABdf['Decision'] = CountDf['Decision']
         self.ABdf['DecisionGT'] = CountDf['DecisionGT']
-        
-        
+
+
     def AnnotateCountDf2(self):
         InputDf2 = self.Candidate
         WindowSize = self.WindowSize
@@ -428,7 +446,7 @@ class EstModel():
     def EstimateError(self):
         '''
         Estimate 4 types of error
-        Homozygous: 
+        Homozygous:
         Heterozygous:
         PCR error:
         Allele drop out:
@@ -443,7 +461,7 @@ class EstModel():
         self.AnnotateCountDf2()
         print('%s: The second Annotation finished!' % time.ctime())
         self.Result = self.Candidate
-    
+
     def FillError(self):
         self.Candidate['Vague'] = 'No'
         for I in self.Candidate.index:
@@ -466,15 +484,15 @@ class EstModel():
             if SubDf.shape[0] > 1:
                 if self.Candidate.loc[I, 'PassCode'] == 'NormalSNV':
                     self.Candidate.loc[I, 'PassCode'] = 'ClusterSNV'
-    
+
     def BaseCaller(self):
         '''
         genotyping for each point
         '''
-        # Label SNV candidate with too many Error 
+        # Label SNV candidate with too many Error
         self.FillError()
         # Cut the result dataframe to ensure all Candidate have neighborhood information
-        self.Candidate = self.Candidate.loc[(self.Candidate['Pos']>=self.Start)&(self.Candidate['Pos']<=self.End)]      
+        self.Candidate = self.Candidate.loc[(self.Candidate['Pos']>=self.Start)&(self.Candidate['Pos']<=self.End)]
         self.ABdf = self.ABdf.loc[(self.ABdf['Pos']>=self.Start)&(self.ABdf['Pos']<=self.End)]
         JudgeDf = self.Candidate[['Ref','RefCount','Alt','AltCount', 'Decision','DecisionGT','AlleleDropOut']]
         JudgeDf['Genotype'] = '0/0'
@@ -487,12 +505,12 @@ class EstModel():
         JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']>JudgeDf['RefCount']), 'BaseCall'] = JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']>JudgeDf['RefCount']), 'Alt'] + "/" + JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']>JudgeDf['RefCount']), 'Alt']
         JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']<JudgeDf['RefCount']), 'BaseCall'] = JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']<JudgeDf['RefCount']), 'Ref'] + "/" + JudgeDf.loc[(JudgeDf['DecisionGT']=='Homozygous') & (JudgeDf['AltCount']<JudgeDf['RefCount']), 'Ref']
         # Select SNV position to loose the demention
-        JudgeDf_NonSNV = JudgeDf.loc[(JudgeDf['Genotype']=='0/0')]     # ref/ref base 
-        JudgeDf_SNVs = JudgeDf.loc[(JudgeDf['Genotype']!='0/0')]       # alt is SNV 
+        JudgeDf_NonSNV = JudgeDf.loc[(JudgeDf['Genotype']=='0/0')]     # ref/ref base
+        JudgeDf_SNVs = JudgeDf.loc[(JudgeDf['Genotype']!='0/0')]       # alt is SNV
         ConfuseIndex = list(JudgeDf.loc[(JudgeDf['Decision']!='Homozygous')&(JudgeDf['Decision']!='Heterozygous')&(JudgeDf['Genotype']!='0/0')].index)  # alt is SNV but high pcr risk
         self.JUDGEMENT = {"Non_SNV":JudgeDf_NonSNV,
                           "SCSNV":JudgeDf_SNVs,
-                          "RawJudgeDf": JudgeDf.loc[(JudgeDf['Genotype']!="0/0") | ((JudgeDf['Decision']!='Homozygous')&(JudgeDf['Decision']!='Heterozygous'))], 
+                          "RawJudgeDf": JudgeDf.loc[(JudgeDf['Genotype']!="0/0") | ((JudgeDf['Decision']!='Homozygous')&(JudgeDf['Decision']!='Heterozygous'))],
                           "ConfuseIndex": ConfuseIndex}
         self.Candidate['Genotype'] = JudgeDf['Genotype']
         self.Candidate['BaseCall'] = JudgeDf['BaseCall']
