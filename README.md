@@ -25,7 +25,7 @@ This repository contains the following files which illustrate the methods descri
 The following files pertain to this:
 
 - source/Calculate/Candidate.py (functions and python class used in the software)
-- source/Calculate/SomaticSNV.py
+- source/Calculate/SomaticSNV.py (the somatic mutation selection python script)
 - bin/SCOUT.py (the main program for small genomic intervals)
 - bin/SCOUT_WholeGenome.py (the main program for the whole genome genotyping)
 

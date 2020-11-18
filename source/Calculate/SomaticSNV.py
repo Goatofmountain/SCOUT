@@ -8,7 +8,7 @@ parser=optparse.OptionParser(HelpInfo)
 parser.add_option('-i', '--input', dest='scSNV',type='string', help='single-cell vcf')
 parser.add_option('-g', '--germline', dest='Germline', type='string', help='Germline vcf')
 parser.add_option('-o', '--output', dest='outfile', type='string', help='output vcf')
-
+options, args = parser.parse_args()
 def ParseVCF(aimvcf):
     # input a vcf file get the SNV positions and information into dict
     SNV_dict = {}
@@ -37,3 +37,6 @@ def main():
             output.write(scdict[k])
             output.flush()
     print('%s: The somatic mutation has been written in file: %s' % (time.ctimes(), options.outfile))
+
+if "__name__" == "__main__":
+    main()
